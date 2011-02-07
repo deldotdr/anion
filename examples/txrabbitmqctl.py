@@ -298,7 +298,7 @@ def make_rabbitmqctl_service():
 ###############################################################################
 ## Example usage
 
-def test_service_and_client():
+def setup_service_and_client():
     # Start the Node
     node_manager = messaging.NodeManager()
     node_container = messaging.NodeContainer(node_manager)
@@ -314,9 +314,18 @@ def test_service_and_client():
     node_manager.addEntity('anonymous', client, messaging.NChannel)
     return node_manager, client
 
+def test():
+    """
+    Note:
+    Starting the reactor after using the client is not supported yet.
+    Run this test from the ayps shell:
+    ><> import txrabbitmqctl
+    ><> node, client = txrabbitmqctl.test()
+    ><> client.list_queues()
+    """
+    node, client = setup_service_and_client()
+    return node, client
+    
 
-if __name__ == '__main__':
-    test_service_and_client()
-    reactor.run()
 
 
