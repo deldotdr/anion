@@ -2,6 +2,8 @@
 The core interfaces.
 """
 
+from zope.interface import Interface
+
 
 class INodeMessagingSystem(Interface):
     """
