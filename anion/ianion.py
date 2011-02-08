@@ -31,7 +31,7 @@ class INodeMessagingSystem(Interface):
         called.
         """
 
-    def bind_nchannel(self, nchannel):
+    def bind_nchannel(nchannel):
         """
         nchannel represents a messaging pattern; therefore it facilitates
         configuring an amqp channel (and maybe queues in the broker), and
