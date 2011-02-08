@@ -25,17 +25,6 @@ from txamqp.queue import TimeoutDeferredQueue
 import anion
 SPEC_PATH = os.path.join(anion.__path__[0], 'amqp0-8.xml')
 
-class AMQPTransport:
-    """
-    or AMQPInteraction, like a request
-    can't remember if this is still the idea...or if its AMQPeer now?
-
-    is given the AMQPeer (resource) that should handle the message.
-    """
-
-    def process(self):
-        """
-        """
 
 class Entity(object):
     """
@@ -64,14 +53,10 @@ class Entity(object):
     def receive(self, msg):
         """
         Main event to handle a received message (like render).
-        msg will be the amqp message for now, but eventually will be an
-        intermediate object (like Request).
 
         Messages are delivered here because they are addressed to the name
         this handler is bound to.
         """
-        self.last = msg
-        print 'ENITY receive', msg.content.body
 
 class NodeDelegate(TwistedDelegate):
     """
@@ -186,7 +171,6 @@ class MessagingProtocol(AMQClient):
             d.addCallback(queue_eater, queue)
             return d
         d.addCallback(queue_eater, queue)
-
 
 class NChannel(object):
     """
@@ -715,7 +699,8 @@ class NodeContainer(protocol.ClientFactory):
         #msg = msg translation might happen here..
         self.manager.deliverMessage(name, msg)
 
-def test_nodeA():
+def how_it_should_all_work():
+    # Don't actually try to call this function ;-)
     # Here, the manager is a dependency of the NodeContainer factory
     # The factory has a relationship with the manager
     node = NodeManager()
@@ -763,7 +748,7 @@ def test():
     node_manager = NodeManager()
     node_container = NodeContainer(node_manager)
     reactor.connectTCP('localhost', 5672, node_container)
-    return node
+    return node_manager
 
 
 
