@@ -1,5 +1,13 @@
 """
 The core interfaces.
+
+The build up of the messaging abstractions are the most important.
+
+The design of these interfaces attempts to be as unassuming as possible as
+to what is communicating and how. In the OTP model, process don't
+communicate, processes provide a context from which messages are sent, or
+into which messages are received.
+
 """
 
 from zope.interface import Interface
@@ -272,3 +280,51 @@ class INodeMessage(Interface):
     It isn't clear if all IMessagingEntity implementations should have
     their nchannel as an attribute.
     """
+
+
+class ISerialize(Interface):
+    """
+    This interface name should be discussed, but here is what the thing is
+    for and where it fits in:
+
+    A generic interface for encoding and decoding object types.
+    Implementations can decide if they support arbitrary types or a
+    constrained set of types or even a specific set of defined types. 
+
+    The main thing is, the content sent by an Entity must be encoded and
+    the content delivered to an Entity must be decoded. There can be
+    flexibility in how things get encoded/decoded and who is responsible,
+    (the simplest thing to do with any quick hack is to encode and decode
+    right in the Entity implementation -- the hard coded method.
+    The next, more sophisticated, strategy is to let the Entity encode and
+    decode simple dict structures with JSON or msgpack automatically.
+    Then, more sophisticated yet (and, therefore, requiring more careful
+    design though), your Entity implementation can include a set of defined
+    types (call them message objects; or forget messages and call the
+    Entity a Protocol). 
+
+    these attributes might be included in a serialization registry interface:
+     - content_type
+     - content_encoding
+
+    The python encodings.codecs.Codec should be used as a design reference.
+    """
+
+    def encode(obj):
+        """
+        obj is potentially any python object type that makes sense to
+        encode.
+        return a byte string 
+        """
+
+    def decode(data):
+        """
+        data is an encoded byte string that the implementation will know
+        how to unserialize into an object.
+        return the object.
+        """
+
+class ISerializations(Interface):
+    """
+    """
+

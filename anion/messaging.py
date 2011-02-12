@@ -5,24 +5,29 @@ Expose the txrabbitmq twisted service over different network protocols.
 
 import os
 import uuid
+from time import time
 
 try:
     import json
 except ImportError:
     import simplejson as json
 
+from zope.interface import implements
+
 from twisted.internet import defer
 from twisted.internet import reactor
 from twisted.internet import protocol
+from twisted.internet.interfaces import ILoggingContext
 from twisted.application import service
 
 from txamqp import spec
 from txamqp.content import Content
 from txamqp.client import TwistedDelegate
-from txamqp.protocol import AMQClient
+from txamqp.protocol import AMQClient, Frame
 from txamqp.queue import TimeoutDeferredQueue
 
 import anion
+from anion import ianion
 SPEC_PATH = os.path.join(anion.__path__[0], 'amqp0-8.xml')
 
 
@@ -149,6 +154,18 @@ class MessagingProtocol(AMQClient):
         #print '_auth_fail', #XXX do something better here
         reason.printTraceback() 
 
+    def processFrame(self, frame):
+        ch = self.channel(frame.channel)
+        if frame.payload.type == Frame.HEARTBEAT:
+            self.lastHBReceived = time()
+        else:
+            ch.dispatch(frame, self.work)
+        if self.heartbeatInterval > 0:
+            self.reschedule_checkHB()
+
+   
+
+
     @defer.inlineCallbacks
     def bind_peer(self, name, peer):
         """
@@ -199,6 +216,8 @@ class NChannel(object):
     between two endpoints, or between an endpoint and some 'space' (exchange)?
     """
 
+    implements(ILoggingContext)
+
     def __init__(self, entity, name=None):
         """
         different patterns may or may not require a given name
@@ -215,6 +234,10 @@ class NChannel(object):
         self.entity = entity
         self.name = name
         self.pending_responses = {}
+        self.logstr = self.entity.__class__.__name__ + ', ' + self.__class__.__name__
+
+    def logPrefix(self):
+        return self.logstr
 
     @defer.inlineCallbacks
     def createChannel(self, chan):
@@ -301,7 +324,6 @@ class NChannel(object):
             properties['correlation id'] = correlation_id
         if message_id:
             properties['message id'] = message_id
-
         # msg body is assumed to be properly encoded 
         content = Content(body=msg, properties=properties)
         self.chan.basic_publish(exchange='amq.direct', #todo  
@@ -413,6 +435,7 @@ class RPCChannel(NChannel):
         """
         self.entity = entity
         self.name = name
+        self.logstr = self.entity.__class__.__name__ + ', ' + self.__class__.__name__
 
     @defer.inlineCallbacks
     def configureChannel(self):
@@ -459,6 +482,7 @@ class NodeManager(service.Service):
 
     If this is a service, it can be adapted to be a Node Factory
     """
+    implements(ianion.INodeManager)
 
     def __init__(self):
         """
@@ -487,9 +511,16 @@ class NodeManager(service.Service):
         """
         When the broker connection closes (amqp conn)
         Fatal situation, all entities need to die without calling
-        stopEntity.
+        stopEntity. (because the channels were already closed!)
         Everything can be restarted if a new connection is made.
+
+        What is the best way to clean up all the nchannels, memory wise?
+
+        The nchannels could be notified, and go into their initial state.
+        Client entities need the ability to exist before the node/nchan is
+        ready...
         """
+
 
     def deliverMessage(self, name, msg):
         """
@@ -575,11 +606,25 @@ class NodeManager(service.Service):
 
     def stopEntity(self, name):
         """
+        XXX amqp note:
+        calling channel_close on an already closed channel raises a channel
+        error
         """
         if name not in self.entities:
             raise KeyError("Unrecognized entity name: %s" % (name,))
-        chan = self.nchannels.get(name, None)
         # close channel, cancel consumer, unbind name, (free resources)
+        if not self.nchannels.has_key(name):
+            return
+        nchan = self.nchannels[name]
+        d = nchan.chan.channel_close() # Now, when the channel tells us it
+        # closed, del this nchan. Oh! this gives us a clue on who should
+        # have the nchan and the chan!
+
+        def close_ok(result):
+            del self.nchannels[name]
+
+        d.addCallback(close_ok)
+        return d
 
 
 class NodeContainer(protocol.ClientFactory):
@@ -597,7 +642,6 @@ class NodeContainer(protocol.ClientFactory):
     """
     protocol = MessagingProtocol
     delegate = NodeDelegate
-    #delegate = TwistedDelegate
 
     def __init__(self, manager, username='guest', password='guest', vhost='/'):
         """
@@ -649,7 +693,8 @@ class NodeContainer(protocol.ClientFactory):
         """
         """
         self.connector = connector
-        self.manager.stopService() # or deactivate?
+        #self.manager.stopService() # or deactivate?
+        self.manager.connectionLost(reason)
         #reason.printDetailedTraceback() # dont print if Clean close
 
     def bind_nchannel(self, nchannel):

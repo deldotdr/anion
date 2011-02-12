@@ -20,6 +20,7 @@ from twisted.internet import protocol
 from txrabbitmq import irabbitmqctl
 from txrabbitmq.service import RabbitMQControlService
 
+from anion import entity
 from anion import messaging
 
 
@@ -28,7 +29,7 @@ from anion import messaging
 ## Implement each method from the irabbitmqctl.IRabbitMQControlService
 ## interface. 
 
-class RabbitMQControlClientVerbose(messaging.Entity):
+class RabbitMQControlClientVerbose(entity.Entity):
     """
     This is the verbose implementation of the Control Client. All the
     irabbitmqctl.IRabbitMQControlService methods are explicitly
@@ -183,7 +184,7 @@ class RabbitMQControlClientVerbose(messaging.Entity):
 ## Client version 2
 ## Generate commands from the interface irabbitmqctl.IRabbitMQControlService
 
-class RabbitMQControlClientFromInterface(messaging.Entity):
+class RabbitMQControlClientFromInterface(entity.Entity):
     """
     Provides IRabbitMQControlService interface.
 
@@ -253,7 +254,7 @@ class Command(object):
 ################################################################################
 ## Service
 
-class RabbitMQControlEntityFromService(messaging.Entity):
+class RabbitMQControlEntityFromService(entity.Entity):
 
     def __init__(self, service):
         """
@@ -263,14 +264,17 @@ class RabbitMQControlEntityFromService(messaging.Entity):
         self.service = service
 
     def receive(self, request):
-        service_command = json.loads(request.body)
+        cmd_dict = json.loads(request.body)
 
-        meth = getattr(self.service, service_command['name'])
-        args = service_command['required']
-        kwargs = dict([(str(k), v) for k, v in service_command['optional'].items()])
-        d = meth(*args, **kwargs)
+        d = self._call_cmd(cmd_dict)
         d.addCallback(self._send_response, request)
         d.addErrback(self._handle_error, request)
+
+    def _call_cmd(self, cmd_dict):
+        meth = getattr(self.service, cmd_dict['name'])
+        args = cmd_dict['required']
+        kwargs = dict([(str(k), v) for k, v in cmd_dict['optional'].items()])
+        return meth(*args, **kwargs)
 
     def _send_response(self, result, request):
         msg = json.dumps(result)
