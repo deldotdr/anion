@@ -318,6 +318,21 @@ def setup_service_and_client():
     node_manager.addEntity('anonymous', client, messaging.NChannel)
     return node_manager, client
 
+def setup_service_and_client():
+    # Start the Node
+    node = messaging.Node()
+    reactor.connectTCP('localhost', 5672, node)
+
+    # Configure the service Entity, and add it to the node
+    rservice = make_rabbitmqctl_service()
+    rentity = RabbitMQControlEntityFromService(rservice)
+    node.addEntity('rabbitmqctl', rentity, messaging.RPCChannel)
+
+    # Configure the client Entity, and add it to the node
+    client = RabbitMQControlClientFromInterface('rabbitmqctl')
+    node.addEntity('anonymous', client, messaging.NChannel)
+    return node, client
+
 def test():
     """
     Note:

@@ -39,13 +39,12 @@ class Store(object):
 
 
 def test():
-    nm = messaging.NodeManager()
-    nc = messaging.NodeContainer(nm)
-    reactor.connectTCP('localhost', 5672, nc)
+    node = messaging.Node()
+    reactor.connectTCP('localhost', 5672, node)
     serv = Store()
     ent = entity.RPCEntityFromService(serv)
-    nm.addEntity('store', ent, messaging.RPCChannel)
+    node.addEntity('store', ent, messaging.RPCChannel)
     cl = entity.RPCClientEntityFromInterface('store', IStore)
-    nm.addEntity('anon', cl, messaging.NChannel)
-    return nm, cl, serv 
+    node.addEntity('anon', cl, messaging.NChannel)
+    return node, cl, serv 
 

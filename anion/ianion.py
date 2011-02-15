@@ -97,6 +97,10 @@ class INodeManager(Interface):
 
     INodeManager is a higher level interface that application developers
     and deployers will use. 
+
+    need a start 'manager' event; analog to connectionLost
+    the current implementation will see this as the connection_open_ok
+    event that trickles up to this mid level start event.
     """
 
     def addEntity(name, entity, nChannel):

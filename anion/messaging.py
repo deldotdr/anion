@@ -2,10 +2,8 @@
 Use txrabbitmq as a library.
 Expose the txrabbitmq twisted service over different network protocols.
 """
-
 import os
 import uuid
-from time import time
 
 try:
     import json
@@ -20,174 +18,12 @@ from twisted.internet import protocol
 from twisted.internet.interfaces import ILoggingContext
 from twisted.application import service
 
-from txamqp import spec
 from txamqp.content import Content
-from txamqp.client import TwistedDelegate
-from txamqp.protocol import AMQClient, Frame
-from txamqp.queue import TimeoutDeferredQueue
 
-import anion
 from anion import ianion
-SPEC_PATH = os.path.join(anion.__path__[0], 'amqp0-8.xml')
+from anion import amqp
 
 
-class Entity(object):
-    """
-    Messaging Entity (or Process)
-
-    The receive method is to be implemented by the application.
-    process is like render. process doesn't always have to be like a
-    request response. 
-
-    This could eventually be like a gen analog. This first try will be like
-    a server. 
-    """
-
-    def makeConnection(self, nchannel):
-        """
-        event that occurs when Entity is bound into messaging
-        """
-        self.nchannel = nchannel # need a better name
-        self.connectionMade()
-
-    def connectionMade(self):
-        """
-        implement if you want something to happen when the entity is ready
-        """
-
-    def receive(self, msg):
-        """
-        Main event to handle a received message (like render).
-
-        Messages are delivered here because they are addressed to the name
-        this handler is bound to.
-        """
-
-class NodeDelegate(TwistedDelegate):
-    """
-    AMQP methods the broker calls on the client
-    """
-
-    def close(self, reason):
-        """
-        We can do things here when the connection closes
-        """
-        #print "CLOSE"
-        return TwistedDelegate.close(self, reason)
-
-    def basic_return(self, chan, msg):
-        self.client.basic_return_queue.put(msg)
-
-    def basic_deliver(self, chan, msg):
-        """
-        the delegate delegates...
-        forward to node container deliver
-        """
-        self.client.factory.deliverMessage(msg) # factory can translate amqp msg
-        #to node msg object. msg.consumer_tag is used to route to corrent
-        #entity
-
-class MessagingProtocol(AMQClient):
-    """Extends txamqp client Protocol
-    Fixes behavior of some methods implemented in original txamqp protocol.
-    """
-
-    next_channel_id = 0
-
-    def channel(self, id=None):
-        """Overrides AMQClient. Changes: 
-            1) no need to return deferred. The channelLock doesn't protect
-            against any race conditions; the channel reference is returned,
-            so any number of those references could exist already. 
-            2) auto channel numbering
-            3) replace deferred queue for basic_deliver(s) with simple
-               buffer(list)
-        """
-        if id is None:
-            self.next_channel_id += 1
-            id = self.next_channel_id
-        try:
-            ch = self.channels[id]
-        except KeyError:
-            # XXX The real utility is in the exception body; is that good
-            # style?
-            ch = self.channelFactory(id, self.outgoing)
-            # the PacketDelegate defined above requires this buffer
-            self.channels[id] = ch
-        return ch
-
-    def queue(self, key):
-        """channel basic_deliver queue
-        overrides AMQClient
-            1) no need to be deferred
-        """
-        try:
-            q = self.queues[key]
-        except KeyError:
-            q = TimeoutDeferredQueue()
-            self.queues[key] = q
-        return q
-
-    def connectionMade(self):
-        """
-        authenticate and start the Node 
-        """
-        AMQClient.connectionMade(self)
-        username = self.factory.username
-        password = self.factory.password
-        # authentication should happen automatically, and fail asap
-        # XXX need to know how it can fail still
-        d = self.authenticate(username, password)
-        d.addCallback(self._auth_result)
-        d.addErrback(self._auth_fail)
-
-    def _auth_result(self, result):
-        # It's possible an authentication rejection could be a callBack,
-        # and not an errback. need to understand that
-        #print '_auth_result', result #XXX do something better here
-        self.factory.connectClient(self)
-
-    def _auth_fail(self, reason):
-        """
-        handle broker authorization failure
-        """
-        #print '_auth_fail', #XXX do something better here
-        reason.printTraceback() 
-
-    def processFrame(self, frame):
-        ch = self.channel(frame.channel)
-        if frame.payload.type == Frame.HEARTBEAT:
-            self.lastHBReceived = time()
-        else:
-            ch.dispatch(frame, self.work)
-        if self.heartbeatInterval > 0:
-            self.reschedule_checkHB()
-
-   
-
-
-    @defer.inlineCallbacks
-    def bind_peer(self, name, peer):
-        """
-        get this to happen somehow, and then give the final deferred
-        callback an event to fire 
-        """
-        chan = self.channel()
-        yield chan.channel_open()
-        yield chan.queue_declare(queue=name, exclusive=True, auto_delete=True)
-        yield chan.queue_bind(queue=name, exchange='amq.direct',
-                routing_key=name)
-        yield chan.basic_consume(queue=name, no_ack=True, consumer_tag=name)
-        queue = self.queue(name)
-        d = queue.get()
-        def queue_eater(msg, queue):
-            """temp/place holder 
-            """
-            peer.receive(msg)
-            d = queue.get()
-            d.addCallback(queue_eater, queue)
-            return d
-        d.addCallback(queue_eater, queue)
 
 class NChannel(object):
     """
@@ -477,7 +313,7 @@ class RPCChannel(NChannel):
 class NodeManager(service.Service):
     """
     or just Node?
-    interface for binding into message system, independant of amqp
+    interface for binding into message system, independent of amqp
     connection
 
     If this is a service, it can be adapted to be a Node Factory
@@ -626,7 +462,9 @@ class NodeManager(service.Service):
         d.addCallback(close_ok)
         return d
 
-
+import anion
+from txamqp import spec
+SPEC_PATH = os.path.join(anion.__path__[0], 'amqp0-8.xml')
 class NodeContainer(protocol.ClientFactory):
     """
     or MessagingNodeContainer?
@@ -640,8 +478,8 @@ class NodeContainer(protocol.ClientFactory):
     lasts. This factory should not be connected with reactor.connectTCP
     more than once per instance.
     """
-    protocol = MessagingProtocol
-    delegate = NodeDelegate
+    protocol = amqp.AMQPProtocol
+    delegate = amqp.AMQPEvents
 
     def __init__(self, manager, username='guest', password='guest', vhost='/'):
         """
@@ -744,56 +582,171 @@ class NodeContainer(protocol.ClientFactory):
         #msg = msg translation might happen here..
         self.manager.deliverMessage(name, msg)
 
-def how_it_should_all_work():
-    # Don't actually try to call this function ;-)
-    # Here, the manager is a dependency of the NodeContainer factory
-    # The factory has a relationship with the manager
-    node = NodeManager()
-    node_container = NodeContainer(node) #Factory
-    reactor.connectTCP(host, port, node_container)
-    
-    ## OR ##
-    node = NodeManager()
-    reactor.connectTCP(host, port, INodeContainer(node)) #OR
-    reactor.connectTCP(host, port, INodeFactory(node))
-    # This lets you focus on the NodeManager interface without worrying
-    # about the relationship between the Node Manager and the Node
-    # Container (Factory). The Node Container notifies the Manager when it
-    # the connection starts and stops. The connection start event is the
-    # point where they system _can_ start running (the messaging network is
-    # up). The connection lost event will bring the Manager into an
-    # inactive state. A connection lost event can result from a normal
-    # shutdown initiated by the manager (hmm, or by the container?); OR a
-    # connection lost event can result from an amqp error, in which case
-    # the manager goes into a failure mode. Each entity can be restarted
-    # when/if the messaging comes back on. This means all connection state
-    # or interactions will be fresh, but the business state within any
-    # entity is unaffected; the manager deals with entity instances, not
-    # classes, it doesn't have anything to do with the creation of an
-    # entity, it has to do with the operation of an entity in the Node
-    # environment. The creation process (configuration, instantiation,
-    # assembly, etc.) of your application services are handled via typical
-    # means (twistd application, tac file or plugin)
 
 
-    # Entities can be added to run in the node using the node manager 
-    # any time after the manager is created
-    rservice = RabbitmqctlService()
-    rentity = MessagingEntity(rservice)
-    node.addEntity(rentity, 'rabbitmqctl')
-    # The entity will start immediately if the manager is active,
-    # otherwise, it will start when the manager conneciton is active
+class Node(amqp.AMQPClientFactory):
+    """
+    Consolidate container and manager idea...
+    Implement the container (or factory aspect) in amqp.AMQPClientFactory
+    and the manager aspect here, as Node.
 
-    # Entities can be removed from the node
-    node.removeEntity('rabbitmqctl')
+    Consider not inheriting from service.Service. Start and stop methods
+    are needed, but there are events needed for when the lower level goes
+    active and goes inactive.
+    """
+
+    def __init__(self, username='guest', password='guest', vhost='/'):
+        """
+        should the Node object be passed in here?
+        or should it be given as an event?
+
+        @note XXX consider the idea of a root process...this could be the
+        application
+
+        The root application could be some entity container/node mapper
+        (mapping endpoints to different implementations of messaging names)
+        """
+        amqp.AMQPClientFactory.__init__(self, username, password, vhost)
+        self.entities = {} # the resources
+        self.nchannels = {} # the protocol/transports (not exactly amqp chan)
+
+    def nodeStart(self):
+        """
+        """
+        for name in self.entities:
+            self.startEntity(name)
+
+    def nodeStop(self):
+        """
+        """
+        for name in self.entities:
+            self.stopEntity(name)
+
+    def connectionLost(self, reason):
+        """
+        When the broker connection closes (amqp conn)
+        Fatal situation, all entities need to die without calling
+        stopEntity. (because the channels were already closed!)
+        Everything can be restarted if a new connection is made.
+
+        What is the best way to clean up all the nchannels, memory wise?
+
+        The nchannels could be notified, and go into their initial state.
+        Client entities need the ability to exist before the node/nchan is
+        ready...
+        """
+
+    def deliverMessage(self, msg):
+        """
+        get entity nchannel by name and invoke its receive event
+        """
+        name = msg.consumer_tag.split('.')[0]
+        nchan = self.nchannels[name]
+        nchan.receive(msg) # simplest first go
+
+    def addEntity(self, name, entity, nChannel):
+        """
+        name is the messaging name to bind to
+        entity is an object providing the IMessagingEntity interface
+        nChannel is the class of NChannel to use
+        
+        More parameters can be attributed to the entity as it runs in the
+        node:
+         - identity
+         - policy (what it can do in the node...)
+        """
+        if name in self.entities:
+            raise KeyError("Entity named %s already exists" % (name,))
+        self.entities[name] = [entity, nChannel]
+        if self.connected:
+            self.startEntity(name)
+
+    def removeEntity(self, name):
+        """
+        """
+        self.stopEntity(name)
+        del self.entities[name]
+
+    def startEntity(self, name):
+        """
+        or start entity? (getting close to spawn..)
+        name must be unique
+        nchannels are like the sockets for each entity.
+        an entity can have only one nchan
+        nchans should be deleted when a entity is stopped 
+        if the amqclient uses the consumer_tag to select a nchan from the
+        manager, consumers map directly to nchans
+        but an amqp channel can have many consumers, so consumer_tags are
+        useful for organizing named endpoints within the context of a
+        amqp channel, 
+        so, either the manager has to keep track of each entities named
+        endpoints (consumer_tags),...
+
+        """
+        if name in self.nchannels:
+            return
+
+        def start_ok(result):
+            """
+            store this entities nchan in our nchannels dict
+            """
+            self.nchannels[name] = nchan
+            return True
+
+        def start_fail(reason):
+            """entity nchan not added to nchan dict
+            """
+            reason.printTraceback()
+            return reason
+        # starting results in a new channel/connector/consumer... object
+        # the channel connector object thing represents state within the
+        # amqp client.
+        # The creation of the channel connector is a lower level node
+        # container method.
+        # The container is passed some config parameters (name, ...) and a
+        # callback function (the channel connector object itself..). The
+        # actual amqp channels and consumer names remain in the client.
+        # The entity can send messages with the channel connector, and
+        # maybe potentially effect its messaging config/usage after it is
+        # started in the Node (or even turn itself off/remove itself from
+        # the ndode)
+        entity, nChannel = self.entities[name]
+        nchan = nChannel(entity, name)
+        d = self.bind_nchannel(nchan) #this is a deferred operation!
+        # should node.bind_nchannel return  deferred, or return something,
+        # as reactor does, and then notification of failure can happen
+        # through an even chain (and not directly via callbacks here)?
+        d.addCallbacks(start_ok, start_fail)
+
+
+    def stopEntity(self, name):
+        """
+        XXX amqp note:
+        calling channel_close on an already closed channel raises a channel
+        error
+        """
+        if name not in self.entities:
+            raise KeyError("Unrecognized entity name: %s" % (name,))
+        # close channel, cancel consumer, unbind name, (free resources)
+        if not self.nchannels.has_key(name):
+            return
+        nchan = self.nchannels[name]
+        d = nchan.chan.channel_close() # Now, when the channel tells us it
+        # closed, del this nchan. Oh! this gives us a clue on who should
+        # have the nchan and the chan!
+
+        def close_ok(result):
+            del self.nchannels[name]
+
+        d.addCallback(close_ok)
+        return d
 
 
 
 def test():
-    node_manager = NodeManager()
-    node_container = NodeContainer(node_manager)
-    reactor.connectTCP('localhost', 5672, node_container)
-    return node_manager
+    node = Node()
+    reactor.connectTCP('localhost', 5672, node)
+    return node
 
 
 
