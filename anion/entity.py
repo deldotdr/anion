@@ -2,7 +2,7 @@
 Messaging Entities are used to adapt your business service into something
 that can send and/or receive messages.
 
-The OTP model for concurrency and message passing utilizes a fully-fledged process
+The OTP model for concurrency and message passing uses a process
 abstraction. Entities are kind of like these processes, but anion is
 by-no-means implementing a complete operating system. 
 The twisted.web server is actually a useful analogy to help understand
@@ -21,7 +21,7 @@ site = server.Site(root_resource)
 reactor.listenTCP(PORT, site)
 Boom! One more thing.
 
-What's a web app? It's some business service exposed of HTTP. 
+What's a web app? It's some business service presented through HTTP. 
 [Example here]
 
 my_app = MyApp()
@@ -38,7 +38,7 @@ Ok, back to Entity.
 
 
 
-One of the simplest things you can do with an Entity, is make a simple RPC
+One of the simplest things you can do with an Entity, is make an RPC
 Service. The key thing is that your service has it's own interface, and is
 defined independent of anion. The less dependent of anion you are, the
 better because you're flexible and it's easy to maintain your code.

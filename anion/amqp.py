@@ -20,7 +20,6 @@ import anion
 SPEC_PATH = os.path.join(anion.__path__[0], 'amqp0-8.xml')
 
 
-
 class AMQPEvents(TwistedDelegate):
     """
     AMQP methods the broker calls on the client.
@@ -36,12 +35,33 @@ class AMQPEvents(TwistedDelegate):
         return TwistedDelegate.close(self, reason)
 
     def basic_return(self, chan, msg):
+        """
+        The node can decide how to handle returned messages. Probably, the
+        entity that sent it can have an error event called on it (if it
+        still exists!)
+        """
         self.client.basic_return_queue.put(msg)
 
     def basic_deliver(self, chan, msg):
-        self.client.factory.deliverMessage(msg) # factory can translate amqp msg
-        #to node msg object. msg.consumer_tag is used to route to corrent
-        #entity
+        """
+        This propagates into the node, where it can be routed to the
+        endpoint entity based on a context built upon a channel.
+        """
+        self.client.factory.deliverMessage(msg)
+
+    def channel_flow(self, chan, msg):
+        """
+        This could throttle the actual client protocol and/or trigger a
+        node flow control event, which different entities could respond to
+        in their own way..
+        """
+
+    def channel_alert(self, chan, msg):
+        """
+        This should propagete into the general node messaging, as a node
+        defined alert event.
+        """
+
 
 class AMQPProtocol(AMQClient):
     """
@@ -204,6 +224,7 @@ class AMQPClientFactory(protocol.ClientFactory):
 
         def close_err(reason):
             reason.printTraceback()
+            return reason
 
         ch0 = self.client.channel(0)
         d = ch0.connection_close()
@@ -244,6 +265,14 @@ class AMQPClientFactory(protocol.ClientFactory):
         chan = self.client.channel() # create a new amqp channel for nchannel to use
         # nchannel has to open it's channel
         return nchannel.createChannel(chan) #XXX what to do if this fails?
+
+    def channel(self):
+        """
+        Allocate a new channel with the client, and return it for use in
+        the Node.
+        This only works when the client is active, so it will only be
+        called by the Node when it's in an active state.
+        """
  
     def deliverMessage(self, msg):
         """

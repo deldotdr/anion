@@ -272,8 +272,13 @@ class RabbitMQControlEntityFromService(entity.Entity):
 
     def _call_cmd(self, cmd_dict):
         meth = getattr(self.service, cmd_dict['name'])
-        args = cmd_dict['required']
-        kwargs = dict([(str(k), v) for k, v in cmd_dict['optional'].items()])
+        args = [str(e) for e in cmd_dict['required']]
+        #kwargs = dict([(str(k), v) for k, v in cmd_dict['optional'].items()])
+        kwargs = {}
+        for k, v in cmd_dict['optional'].items():
+            if isinstance(v, unicode):
+                v = str(v) # Damn you JSON!! (and Python :-/)
+            kwargs[str(k)] = v
         return meth(*args, **kwargs)
 
     def _send_response(self, result, request):
@@ -329,6 +334,13 @@ def setup_service_and_client():
     node.addEntity('rabbitmqctl', rentity, messaging.RPCChannel)
 
     # Configure the client Entity, and add it to the node
+    client = RabbitMQControlClientFromInterface('rabbitmqctl')
+    node.addEntity('anonymous', client, messaging.NChannel)
+    return node, client
+
+def start_client():
+    node = messaging.Node()
+    reactor.connectTCP('localhost', 5672, node)
     client = RabbitMQControlClientFromInterface('rabbitmqctl')
     node.addEntity('anonymous', client, messaging.NChannel)
     return node, client

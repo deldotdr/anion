@@ -13,5 +13,11 @@ setup(
         author_email='deldotdr@gmail.com',
         install_requires=['Twisted'],
         packages=['anion'],
+        package_data = {
+            'anion': [
+                'amqp0-8.xml',
+                ]
+            },
+        include_package_data=True,
         #scripts=['']
         )
