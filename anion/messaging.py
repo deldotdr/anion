@@ -25,8 +25,9 @@ from twisted.internet import reactor
 from twisted.internet import protocol
 from twisted.internet.interfaces import ILoggingContext
 from twisted.application import service
+from twisted.python import log
 
-from txamqp.content import Content
+from pika.spec import BasicProperties
 
 from anion import ianion
 from anion import amqp
@@ -110,7 +111,6 @@ class BaseNChannel(object):
         shutdown procedure should be initiated by calling the (?) event
         """
         self.chan = chan
-        yield chan.channel_open()
         yield defer.maybeDeferred(self.configureChannel)
         defer.returnValue(self.entity.makeConnection(self))
 
@@ -171,23 +171,23 @@ class BaseNChannel(object):
         # Only add properties if they are provided. Defaults aren't needed
         # (yet) and we don't a dict with None values.
         if application_headers:
-            properties['application headers'] = application_headers
+            properties['application_headers'] = application_headers
         if content_type:
-            properties['content type'] = content_type
+            properties['content_type'] = content_type
         if content_encoding:
-            properties['content encoding'] = content_encoding
+            properties['content_encoding'] = content_encoding
         if message_type:
             properties['type'] = message_type
         if reply_to:
-            properties['reply to'] = reply_to
+            properties['reply_to'] = reply_to
         if correlation_id:
-            properties['correlation id'] = correlation_id
+            properties['correlation_id'] = correlation_id
         if message_id:
-            properties['message id'] = message_id
+            properties['message_id'] = message_id
         # msg body is assumed to be properly encoded 
-        content = Content(body=msg, properties=properties)
         self.chan.basic_publish(exchange='amq.direct', #todo  
-                                content=content,
+                                body=msg,
+                                properties=BasicProperties(**properties),
                                 routing_key=dest, #todo 
                                 immediate=True, #todo 
                                 mandatory=True) #todo
@@ -272,7 +272,7 @@ class NChannel(object):
         shutdown procedure should be initiated by calling the (?) event
         """
         self.chan = chan
-        yield chan.channel_open()
+        #yield chan.channel_open()
         yield defer.maybeDeferred(self.configureChannel)
         defer.returnValue(self.entity.makeConnection(self))
 
@@ -287,7 +287,7 @@ class NChannel(object):
         consumer_tag = self.name + '.rpc'
         yield self.chan.queue_bind(exchange='amq.direct',
                                         routing_key=consumer_tag)
-        yield self.chan.basic_consume(no_ack=True,
+        self.chan.basic_consume(no_ack=True,
                                         consumer_tag=consumer_tag)
 
     def send(self, dest, msg, application_headers={},
@@ -327,23 +327,24 @@ class NChannel(object):
         # Only add properties if they are provided. Defaults aren't needed
         # (yet) and we don't a dict with None values.
         if application_headers:
-            properties['application headers'] = application_headers
+            properties['application_headers'] = application_headers
         if content_type:
-            properties['content type'] = content_type
+            properties['content_type'] = content_type
         if content_encoding:
-            properties['content encoding'] = content_encoding
+            properties['content_encoding'] = content_encoding
         if message_type:
             properties['type'] = message_type
         if reply_to:
-            properties['reply to'] = reply_to
+            properties['reply_to'] = reply_to
         if correlation_id:
-            properties['correlation id'] = correlation_id
+            properties['correlation_id'] = correlation_id
         if message_id:
-            properties['message id'] = message_id
+            properties['message_id'] = message_id
         # msg body is assumed to be properly encoded 
-        content = Content(body=msg, properties=properties)
+        #content = Content(body=msg, properties=properties)
         self.chan.basic_publish(exchange='amq.direct', #todo  
-                                content=content,
+                                body=msg,
+                                properties=BasicProperties(**properties),
                                 routing_key=dest, #todo 
                                 immediate=True, #todo 
                                 mandatory=True) #todo
@@ -368,7 +369,7 @@ class NChannel(object):
                                     message_type=message_type)
         return response_deferred
 
-    def receive(self, msg):
+    def receive(self, header_frame, body):
         """
         The main message received event for an Entity. The NChannel handles
         amqp details; amqp is not exposed or needed beyond the NChannel.
@@ -380,11 +381,13 @@ class NChannel(object):
         messages had a type / every interaction uses a certain messaging
         pattern.
         """
-        props = msg.content.properties
-        msg_type = props.get('type', None)
+        props = header_frame
+        #msg_type = props.get('type', None)
+        msg_type = header_frame.type
         # stupid select routine:
         if msg_type == 'rpc-response':
-            correlation_id = props['correlation id']
+            #correlation_id = props['correlation id']
+            correlation_id = header_frame.correlation_id
             try:
                 response_deferred = self.pending_responses.pop(correlation_id)
             except KeyError:
@@ -392,10 +395,10 @@ class NChannel(object):
                 # should it be returned to the broker?
                 # should we save or report this?
                 return
-            response_deferred.callback(msg.content.body) # XXX need to add
+            response_deferred.callback(body) # XXX need to add
             # optional encoding layer that uses a Serialization registry
         else:
-            self.entity.receive(msg)
+            self.entity.receive(body)
 
 class Request(object):
     """
@@ -516,7 +519,7 @@ class Node(amqp.AMQPClientFactory):
         The root application could be some entity container/node mapper
         (mapping endpoints to different implementations of messaging names)
         """
-        amqp.AMQPClientFactory.__init__(self, username, password, vhost)
+        amqp.AMQPClientFactory.__init__(self, None)
         self.entities = {} # the resources
         self.nchannels = {} # the protocol/transports (not exactly amqp chan)
 
@@ -548,13 +551,13 @@ class Node(amqp.AMQPClientFactory):
         ready...
         """
 
-    def deliverMessage(self, msg):
+    def deliverMessage(self, chan, method_frame, header_frame, body):
         """
         get entity nchannel by name and invoke its receive event
         """
-        name = msg.consumer_tag.split('.')[0]
+        name = method_frame.consumer_tag.split('.')[0]
         nchan = self.nchannels[name]
-        nchan.receive(msg) # simplest first go
+        nchan.receive(header_frame, body) # simplest first go
 
     def addEntity(self, name, entity, nChannel):
         """
@@ -602,6 +605,7 @@ class Node(amqp.AMQPClientFactory):
             """
             store this entities nchan in our nchannels dict
             """
+            log.msg('###')
             self.nchannels[name] = nchan
             return True
 
@@ -622,6 +626,7 @@ class Node(amqp.AMQPClientFactory):
         # maybe potentially effect its messaging config/usage after it is
         # started in the Node (or even turn itself off/remove itself from
         # the ndode)
+        log.msg('dsss')
         entity, nChannel = self.entities[name]
         nchan = nChannel(entity, name)
         d = self.bind_nchannel(nchan) #this is a deferred operation!
