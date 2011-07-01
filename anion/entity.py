@@ -51,6 +51,14 @@ of their Node environment, so they would want an interface to the Node.
 Out of the box, an Entity that is added to a node gets connected to the
 message system, with a specified messaging pattern.
 
+----
+refact2r
+
+These aren't channels, these are message receivers and constructors.
+If a entity constructs a new message, it is either responding to a request
+through an request response channel, or it is creating a new channel
+through the node interface. 
+
 """
 import json
 

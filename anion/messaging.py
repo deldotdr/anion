@@ -522,6 +522,8 @@ class Node(amqp.AMQPClientFactory):
 
     def nodeStart(self):
         """
+        The activation of the node should happen when the amqp connection
+        succeeds in connecting.
         """
         for name in self.entities:
             self.startEntity(name)
