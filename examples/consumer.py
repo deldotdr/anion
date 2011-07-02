@@ -37,7 +37,7 @@ class Counter(entity.Entity):
         """
         """
         self.received += 1
-        self.last = msg
+        self.last = msg[-15:]
 
 class CChannel(messaging.NChannel):
 
@@ -77,8 +77,7 @@ def main():
     #node._faster = True
     reactor.connectTCP('localhost', 5672, node)
     counter = Counter()
-    #node.addEntity('foo', counter, CChannel)
-    reactor.callLater(0.4, node.addEntity,'foo', counter, CChannel)
+    node.addEntity('foo', counter, CChannel)
     return node
 
 def watchlog():

@@ -1,22 +1,7 @@
 """
-Notes:
-    handle channel_flow
-    all publishing should implement pauseable producer
-    publish events should be managed by a cooperator (some how, all sends
-    should generalize to an iterable...multiple sends at once must be an
-    iterable)
-
-RPCChannel:
-    instead of rpc_send, just have specific version of regular send
-    or provide a special call method. 
 """
 import os
 import uuid
-
-try:
-    import json
-except ImportError:
-    import simplejson as json
 
 from zope.interface import implements
 
@@ -37,25 +22,10 @@ class NodeMessage(object):
     A Node message (that is, a Message in the same logical space as a Node,
     which is above the messaging)
 
-    This will implement INodeMessage 
-    Special NodeMessages, extending the base NodeMessage if that makes
-    sense to have a base NodeMessage, can be made for each different
-    message pattern (Nchannel)... hopefully there wont need to be as many
-    NodeMessage types as there will be NChannel types.
     """
 
     def __init__(self, body, nchannel, reply_to, correlation_id):
         """
-        XXX Realization!: ok, if the Node Messages delivered to the entity
-        handlers bring the nchannel with them (Messages encapsulate a
-        context for an interaction...) then the entity does not need to
-        have an nchannel bound to it, which makes more sense right
-        now...except for if the entity wants to initiate sending a
-        message...then how does it do that?
-        Answer: well, since it is simpler to limit a entity to one class of
-        interaction (Protocol) then a client should be it's own entity
-        (Client Protocol). An entity that wants to initiate an interaction
-        (use a client) will need to be equipped with a client entity 
         """
         self.body = body
         self.nchannel = nchannel
@@ -71,189 +41,20 @@ class NodeMessage(object):
         """
 
 
-class BaseNChannel(object):
-    """
-    amqp channel connector.
-    Connect a consumer to an entity
-
-    Consuming/responding entity
-
-    Producing/initiating client entity
-    """
-
-    implements(ILoggingContext)
-
-    def __init__(self, entity, name=None):
-        """
-        different patterns may or may not require a given name
-
-        this is like the Transport object
-        and chan is like the socket 
-        """
-        self.entity = entity
-        self.name = name
-
-
-    @defer.inlineCallbacks
-    def createChannel(self, chan):
-        """
-        chan is the actual amqp channel. The activation of an NChannel
-        instance happens when the node allocates a amqp channel
-        specifically for this self.entity
-        This event might be revised...not sure if this is the best way.
-
-        The successful handling of this event results in the activation of
-        the entity.
-        The caller of this event doesn't care if this about the Deferred
-        returned here. inlineCallbacks are used to simplify the
-        configuration steps. 
-        Failures raised as exceptions here need to be captured and the
-        shutdown procedure should be initiated by calling the (?) event
-        """
-        self.chan = chan
-        yield defer.maybeDeferred(self.configureChannel)
-        defer.returnValue(self.entity.makeConnection(self))
-
-    @defer.inlineCallbacks
-    def configureChannel(self):
-        """
-        implement txamqp config
-        do amqp configuration
-        A standard/simple dictionary describing the message pattern.
-        This dict has properties that map to amqp properties, but they
-        don't exactly need to be amqp properties, just messaging properties
-        in general.
-        """
-        #set up reply queue
-        queue = yield self.chan.queue_declare(auto_delete=True, exclusive=True)
-        consumer_tag = self.name + '.rpc'
-        yield self.chan.queue_bind(exchange='amq.direct',
-                                        routing_key=consumer_tag)
-        yield self.chan.basic_consume(no_ack=True,
-                                        consumer_tag=consumer_tag)
-
-    def send(self, dest, msg, application_headers=None,
-                                content_type=None,
-                                content_encoding=None,
-                                message_type=None,
-                                reply_to=None,
-                                correlation_id=None,
-                                message_id=None):
-        """
-        The NChannel send is the main fulcrum in this messaging system
-        abstraction. The amqp message is constructed, and the publish
-        arguments are determined and applied.
-
-        This is a generic send that can be re implemented for different
-        kinds of NChannels...
-        All implementations will utilize the basic_publish amqp channel
-        class method to 'send' the payload into the system. basic_publish
-        is not a deferred method  -- there is
-        no response required from the broker, although the broker can call
-        us back if delivery to a queue or a consumer is not immediately
-        possible if we ask it (configure it with immediate/mandatory
-        flags). A successful send to the message broker is all that we need
-        to consider; the message system guarantees delivery to the
-        destination (assuming the destination is there). Any problem
-        sending will produce a failure/exception, and not an error
-        response.
-        txamqp happens to return a deferred for basic_publish
-
-        dest:
-         - simple name
-         - (exchange, routing_key,) This could serve as an official name
-        How should delivery policy be set here? (how should immediate and
-        mandatory be configured/managed/specified?)
-        """
-        if application_headers is None:
-            application_headers = {}
-        properties = {}
-        # Only add properties if they are provided. Defaults aren't needed
-        # (yet) and we don't a dict with None values.
-        if application_headers:
-            properties['application_headers'] = application_headers
-        if content_type:
-            properties['content_type'] = content_type
-        if content_encoding:
-            properties['content_encoding'] = content_encoding
-        if message_type:
-            properties['type'] = message_type
-        if reply_to:
-            properties['reply_to'] = reply_to
-        if correlation_id:
-            properties['correlation_id'] = correlation_id
-        if message_id:
-            properties['message_id'] = message_id
-        # msg body is assumed to be properly encoded 
-        self.chan.basic_publish(exchange='amq.direct', #todo  
-                                body=msg,
-                                properties=BasicProperties(**properties),
-                                routing_key=dest, #todo 
-                                immediate=True, #todo 
-                                mandatory=True) #todo
-
-    def process(self, msg):
-        """
-        The main message received event for an Entity. The NChannel handles
-        amqp details; amqp is not exposed or needed beyond the NChannel.
-        The Entity doesn't know or care about amqp.
-        this event then calls the entity instance receive
-
-        The nchannel could do some sorting/routing here.
-        The use of the message type property would make this easy (if all
-        messages had a type / every interaction uses a certain messaging
-        pattern.
-        """
-
 class NChannel(object):
     """
     mixture of request, transport, and amqp channel
 
-    NChannel might get the point across the best.
 
-    amqp configuration for a style of messaging
-
-
-    an interface that basic_deliver can call
-    might want to use the IConsumer interface
-
-    an object that holds an entity's send capability
-
-    an amqp channel can have multiple consumers, so an entity can have
-    multiple consumers, and consumers shouldn't be shared between entities.
-    This way, a running entity corresponds to an amqp channel this is open
-    for the duration of the entitys life. an entity only ever uses one
-    channel.
-    If it binds multiple consumers, it must be able to deal with the
-    different deliveries, which will all be given to the same entity receive
-    handler.
-
-    Does an NChannel maintain a communication context like a connection
-    between two endpoints, or between an endpoint and some 'space' (exchange)?
+    amqp configuration for a type of Channel
     """
-
-    implements(ILoggingContext)
 
     def __init__(self, entity, name=None):
         """
-        different patterns may or may not require a given name
-
-        this is like the Transport object
-        and chan is like the socket 
-
-        instead of queueing write events with the reactor, as Transport
-        does rather than writing directly to the socket, here we can write
-        directly to chan because we know chan will never block (contrast
-        this with how Transport can not write directly to its socket
-        because the socket could block). 
         """
         self.entity = entity
         self.name = name
         self.pending_responses = {}
-        self.logstr = self.entity.__class__.__name__ + ', ' + self.__class__.__name__
-
-    def logPrefix(self):
-        return self.logstr
 
     @defer.inlineCallbacks
     def createChannel(self, chan):
@@ -265,14 +66,8 @@ class NChannel(object):
 
         The successful handling of this event results in the activation of
         the entity.
-        The caller of this event doesn't care if this about the Deferred
-        returned here. inlineCallbacks are used to simplify the
-        configuration steps. 
-        Failures raised as exceptions here need to be captured and the
-        shutdown procedure should be initiated by calling the (?) event
         """
         self.chan = chan
-        #yield chan.channel_open()
         yield defer.maybeDeferred(self.configureChannel)
         defer.returnValue(self.entity.makeConnection(self))
 
@@ -315,7 +110,6 @@ class NChannel(object):
         destination (assuming the destination is there). Any problem
         sending will produce a failure/exception, and not an error
         response.
-        txamqp happens to return a deferred for basic_publish
 
         dest:
          - simple name
@@ -341,11 +135,10 @@ class NChannel(object):
         if message_id:
             properties['message_id'] = message_id
         # msg body is assumed to be properly encoded 
-        #content = Content(body=msg, properties=properties)
         self.chan.basic_publish(exchange='amq.direct', #todo  
+                                routing_key=dest, #todo 
                                 body=msg,
                                 properties=BasicProperties(**properties),
-                                routing_key=dest, #todo 
                                 immediate=True, #todo 
                                 mandatory=True) #todo
 
@@ -480,42 +273,31 @@ class RPCChannel(NChannel):
         yield self.chan.queue_declare(queue=self.name, exclusive=True, auto_delete=True)
         yield self.chan.queue_bind(queue=self.name, exchange='amq.direct',
                                                     routing_key=self.name)
-        yield self.chan.basic_consume(queue=self.name, no_ack=True,
+        self.chan.basic_consume(queue=self.name, no_ack=True,
                                                     consumer_tag=self.name)
 
-    def receive(self, msg):
+    def receive(self, header_frame, body):
         """
         simplest implementation: one request at a time
         """
-        props = msg.content.properties
-        msg_type = props['type']
+        props = header_frame
+        msg_type = props.type
         if msg_type == 'rpc-request':
             # should a Entity Request Message be constructed for this
             # interaction?
-            reply_to = props['reply to'] # XXX message format enforcement needed
-            correlation_id = props['correlation id']
-            request = Request(msg.content.body, self, reply_to, correlation_id)
+            reply_to = props.reply_to # XXX message format enforcement needed
+            correlation_id = props.correlation_id
+            request = Request(body, self, reply_to, correlation_id)
             self.entity.receive(request)
 
 class Node(amqp.AMQPClientFactory):
     """
-    Consolidate container and manager idea...
     Implement the container (or factory aspect) in amqp.AMQPClientFactory
     and the manager aspect here, as Node.
-
-    Consider not inheriting from service.Service. Start and stop methods
-    are needed, but there are events needed for when the lower level goes
-    active and goes inactive.
     """
 
     def __init__(self, username='guest', password='guest', vhost='/'):
         """
-        should the Node object be passed in here?
-        or should it be given as an event?
-
-        @note XXX consider the idea of a root process...this could be the
-        application
-
         The root application could be some entity container/node mapper
         (mapping endpoints to different implementations of messaging names)
         """
@@ -626,7 +408,6 @@ class Node(amqp.AMQPClientFactory):
         # maybe potentially effect its messaging config/usage after it is
         # started in the Node (or even turn itself off/remove itself from
         # the ndode)
-        log.msg('dsss')
         entity, nChannel = self.entities[name]
         nchan = nChannel(entity, name)
         d = self.bind_nchannel(nchan) #this is a deferred operation!

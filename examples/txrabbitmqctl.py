@@ -7,6 +7,7 @@ to run this example as root.
 """
 
 import os
+import sys
 
 try:
     import json
@@ -16,6 +17,8 @@ except ImportError:
 from twisted.internet import defer
 from twisted.internet import reactor
 from twisted.internet import protocol
+from twisted.python import log
+log.startLogging(sys.stdout)
 
 from txrabbitmq import irabbitmqctl
 from txrabbitmq.service import RabbitMQControlService

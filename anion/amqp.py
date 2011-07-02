@@ -11,11 +11,145 @@ from twisted.internet import defer
 from twisted.internet import protocol
 from twisted.python import log
 
-from pika.adapters import twisted_connection
+from anion.pika_adapter import PikaAdapter
+from anion.pika_adapter import TwistedConnection
 
 
+class DeferredChannelAdapter(object):
 
-class AMQPClientFactory(twisted_connection.PikaClientFactory):
+    def __init__(self, channel, client):
+        self.channel = channel
+        self.client = client
+
+    def exchange_declare(self, **kw):
+        d = defer.Deferred()
+        self.channel.exchange_declare(callback=d.callback, **kw)
+        return d
+
+    def exchange_delete(self, **kw):
+        d = defer.Deferred()
+        self.channel.exchange_delete(callback=d.callback, **kw)
+        return d
+
+    def exchange_bind(self, **kw):
+        d = defer.Deferred()
+        self.channel.exchange_bind(callback=d.callback, **kw)
+        return d
+
+    def exchange_unbind(self, **kw):
+        d = defer.Deferred()
+        self.channel.exchange_unbind(callback=d.callback, **kw)
+        return d
+
+    def queue_declare(self, **kw):
+        d = defer.Deferred()
+        self.channel.queue_declare(callback=d.callback, **kw)
+        return d
+
+    def queue_bind(self, **kw):
+        d = defer.Deferred()
+        self.channel.queue_bind(callback=d.callback, **kw)
+        return d
+
+    def queue_purge(self, **kw):
+        d = defer.Deferred()
+        self.channel.queue_purge(callback=d.callback, **kw)
+        return d
+
+    def queue_delete(self, **kw):
+        d = defer.Deferred()
+        self.channel.queue_delete(callback=d.callback, **kw)
+        return d
+
+    def queue_unbind(self, **kw):
+        d = defer.Deferred()
+        self.channel.queue_unbind(callback=d.callback, **kw)
+        return d
+
+    def basic_qos(self, **kw):
+        d = defer.Deferred()
+        self.channel.basic_qos(callback=d.callback, **kw)
+        return d
+
+    def basic_get(self, **kw):
+        d = defer.Deferred()
+        self.channel.basic_get(callback=d.callback, **kw)
+        return d
+
+    def basic_ack(self, **kw):
+        return self.channel.basic_ack(**kw)
+
+    def basic_reject(self, **kw):
+        return self.channel.basic_reject(**kw)
+
+    def basic_recover_async(self, **kw):
+        return self.channel.basic_recover_async(**kw)
+
+    def basic_recover(self, **kw):
+        d = defer.Deferred()
+        self.channel.basic_recover(callback=d.callback, **kw)
+        return d
+
+    def tx_select(self):
+        d = defer.Deferred()
+        self.channel.tx_select(callback=d.callback)
+        return d
+
+    def tx_commit(self):
+        d = defer.Deferred()
+        self.channel.tx_commit(callback=d.callback)
+        return d
+
+    def tx_rollback(self):
+        d = defer.Deferred()
+        self.channel.tx_rollback(callback=d.callback)
+        return d
+
+    def basic_consume(self, **kw):
+        return self.channel.basic_consume(self.client.factory.deliverMessage, **kw)
+
+    def basic_publish(self, *args, **kw):
+        return self.channel.basic_publish(*args, **kw)
+
+class AMQClient(PikaAdapter):
+    """
+    AMQP Client enhanced for interaction.
+    """
+
+    def connectionOpened(self, a):
+        self.factory.connectClient(self)
+
+    def channel(self):
+        """
+        Create a new channel and open it
+        """
+        d = defer.Deferred()
+        self.pika_connection.channel(d.callback)
+        def cb(chan, client):
+            return DeferredChannelAdapter(chan, client)
+        d.addCallback(lambda chan: DeferredChannelAdapter(chan, self))
+        return d
+
+class PikaClientFactory(protocol.ClientFactory):
+    """
+    """
+    protocol = AMQClient
+
+    def __init__(self, parameters=None):
+        """
+        - parameters: pika ConnectionParameters
+        """
+        self.parameters = parameters
+
+
+    def buildProtocol(self, addr):
+        pika_connection = TwistedConnection(self.parameters)
+        proto = self.protocol(pika_connection)
+        proto.factory = self
+        return proto
+
+
+class AMQPClientFactory(PikaClientFactory):
     """
     The factory uses the connected protocol for as long as the connection
     lasts. This factory should not be connected with reactor.connectTCP
@@ -23,8 +157,6 @@ class AMQPClientFactory(twisted_connection.PikaClientFactory):
     """
 
     connected = 0
-
-
 
     def clientConnectionFailed(self, connector, reason):
         """
@@ -36,7 +168,6 @@ class AMQPClientFactory(twisted_connection.PikaClientFactory):
         self.connector = connector
         #self.manager.stopService() # or deactivate?
         #self.nodeStop()
-        #self.manager.connectionLost(reason)
 
     def connectClient(self, client):
         """
@@ -55,19 +186,7 @@ class AMQPClientFactory(twisted_connection.PikaClientFactory):
         The success of this triggers the TCP transport close, which will
         fire the NodeContainer clientConnectionLost event
         """
-        def close_ok(result):
-            """The result is not needed. The fact of success is sufficient.
-            """
-            return result
-
-        def close_err(reason):
-            reason.printTraceback()
-            return reason
-
-        ch0 = self.client.channel(0)
-        d = ch0.connection_close()
-        d.addCallbacks(close_ok, close_err)
-        return d
+        self.client.close() # might trigger on_close_callback
 
     def bind_nchannel(self, nchannel):
         """
@@ -100,12 +219,8 @@ class AMQPClientFactory(twisted_connection.PikaClientFactory):
         This can/will only be called when the messaging client is up.
         This will fail if self.client is set
         """
-        log.msg(self.client)
         d = self.client.channel() # create a new amqp channel for nchannel to use
-        log.msg(d)
-        # nchannel has to open it's channel
         d.addCallback(nchannel.createChannel)
-        #return nchannel.createChannel(chan) #XXX what to do if this fails?
         return d
 
     def channel(self):
