@@ -139,8 +139,8 @@ class NChannel(object):
                                 routing_key=dest, #todo 
                                 body=msg,
                                 properties=BasicProperties(**properties),
-                                immediate=True, #todo 
-                                mandatory=True) #todo
+                                immediate=False, #todo 
+                                mandatory=False) #todo
 
     def rpc_send(self, dest, msg):
         """
