@@ -2,42 +2,6 @@
 Messaging Entities are used to adapt your business service into something
 that can send and/or receive messages.
 
-The OTP model for concurrency and message passing uses a process
-abstraction. Entities are kind of like these processes, but anion is
-by-no-means implementing a complete operating system. 
-The twisted.web server is actually a useful analogy to help understand
-Entity. The web modules Resource is the analog of anions Entity.
-
-In web, a Resource is basically a url (example.com/shopping_cart).
-Resources can be composed into trees, mapping to a websites url tree. 
-How do you get your web Resources served? Using web.server.Site! A site
-holds one tree of Resources, and you create a site by instantiating
-server.Site with your root Resource instance.
-server.Site is a Twisted Protocol Factory, so the last step to serving is
-to start the Site listening on a TCP port, using the reactor:
-
-root_resource = Resource()
-site = server.Site(root_resource)
-reactor.listenTCP(PORT, site)
-Boom! One more thing.
-
-What's a web app? It's some business service presented through HTTP. 
-[Example here]
-
-my_app = MyApp()
-my_app.configure()
-
-my_app_resource = ResourceFromApp(my_app)
-web_app_root = RootResource()
-web_app_root.putChild('', my_app_resource)
-site = server.Site(web_app_root)
-reactor.listenTCP(PORT, site)
-Boom! Done. 
-
-Ok, back to Entity.
-
-
-
 One of the simplest things you can do with an Entity, is make an RPC
 Service. The key thing is that your service has it's own interface, and is
 defined independent of anion. The less dependent of anion you are, the

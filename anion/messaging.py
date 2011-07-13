@@ -48,6 +48,8 @@ class NChannel(object):
 
     amqp configuration for a type of Channel
     """
+    exchange = 'amq.direct'
+    exchange_type = 'direct'
 
     def __init__(self, entity, name=None):
         """
@@ -80,7 +82,7 @@ class NChannel(object):
         #set up reply queue
         queue = yield self.chan.queue_declare(auto_delete=True, exclusive=True)
         consumer_tag = self.name + '.rpc'
-        yield self.chan.queue_bind(exchange='amq.direct',
+        yield self.chan.queue_bind(exchange=self.exchange,
                                         routing_key=consumer_tag)
         self.chan.basic_consume(no_ack=True,
                                         consumer_tag=consumer_tag)
@@ -96,26 +98,6 @@ class NChannel(object):
         The NChannel send is the main fulcrum in this messaging system
         abstraction. The amqp message is constructed, and the publish
         arguments are determined and applied.
-
-        This is a generic send that can be re implemented for different
-        kinds of NChannels...
-        All implementations will utilize the basic_publish amqp channel
-        class method to 'send' the payload into the system. basic_publish
-        is not a deferred method (It shouldn't be, anyways) -- there is
-        no response required from the broker, although the broker can call
-        us back if delivery to a queue or a consumer is not immediately
-        possible if we ask it (configure it with immediate/mandatory
-        flags). A successful send to the message broker is all that we need
-        to consider; the message system guarantees delivery to the
-        destination (assuming the destination is there). Any problem
-        sending will produce a failure/exception, and not an error
-        response.
-
-        dest:
-         - simple name
-         - (exchange, routing_key,) This could serve as an official name
-        How should delivery policy be set here? (how should immediate and
-        mandatory be configured/managed/specified?)
         """
         properties = {}
         # Only add properties if they are provided. Defaults aren't needed
@@ -135,7 +117,7 @@ class NChannel(object):
         if message_id:
             properties['message_id'] = message_id
         # msg body is assumed to be properly encoded 
-        self.chan.basic_publish(exchange='amq.direct', #todo  
+        self.chan.basic_publish(exchange=self.exchange, #todo  
                                 routing_key=dest, #todo 
                                 body=msg,
                                 properties=BasicProperties(**properties),
@@ -387,7 +369,6 @@ class Node(amqp.AMQPClientFactory):
             """
             store this entities nchan in our nchannels dict
             """
-            log.msg('###')
             self.nchannels[name] = nchan
             return True
 
