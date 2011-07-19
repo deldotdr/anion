@@ -5,3 +5,4 @@ dist
 *.swp
 *.*.swp
 .*.*.swo
+dropin.cache
