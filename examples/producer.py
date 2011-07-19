@@ -29,7 +29,7 @@ class MessageCountSampler(object):
         d_time = _now_time - self.last_time
         inst_rate = _diff / d_time
         self.last_time = _now_time
-        print "count: %s msgs - rate: %s msg/sec" % (str(self.total_count), str(inst_rate),)
+        log.msg("count: %s msgs - rate: %s msg/sec" % (str(self.total_count), str(inst_rate),))
 
 
 
@@ -88,5 +88,6 @@ class Options(usage.Options):
             ]
 
 if __name__ == '__main__':
+    log.startLogging(sys.stdout)
     main()
     reactor.run()

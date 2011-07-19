@@ -1,4 +1,11 @@
 """
+TODO
+Channel Naming refactor 
+ - don't split on '.' in routing key (don't break ability to have .)
+ - (exchange, key) name convention?
+Node Interface
+- instead of addEntity, the top level should be more like addServer...
+- clients shouldn't require a listening name
 """
 import os
 import uuid
