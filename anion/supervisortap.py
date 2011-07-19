@@ -8,11 +8,8 @@ from anion.supervisor import Supervisor, StartableTypeFinder
 
 
 class Options(usage.Options):
-    """
-    Define the options accepted by the I{twistd procmon} plugin.
-    """
 
-    synopsis = "[procmon options] commandline"
+    synopsis = "[anion options] commandline"
 
     optParameters = [["threshold", "t", 1, "How long a process has to live "
                       "before the death is considered instant, in seconds.",
@@ -34,15 +31,11 @@ class Options(usage.Options):
 
 
     longdesc = """\
-procmon runs processes, monitors their progress, and restarts them when they
-die.
+Anion supervisor runs a generic Supervisor/process monitor that can
+discover python modules in the cwd. The supervisor can be remotely
+commanded to run any of the modules in their own python process.
 
-procmon will not attempt to restart a process that appears to die instantly;
-with each "instant" death (less than 1 second, by default), it will delay
-approximately twice as long before restarting it. A successful run will reset
-the counter.
-
-Eg twistd procmon sleep 10"""
+"""
 
     def parseArgs(self, *args):
         """
@@ -69,5 +62,4 @@ def makeService(config):
     s.minRestartDelay = config["minrestartdelay"]
     s.maxRestartDelay = config["maxrestartdelay"]
     s.start_process(config["args"][0])
-    #s.addProcess(" ".join(config["args"]), config["args"])
     return s
